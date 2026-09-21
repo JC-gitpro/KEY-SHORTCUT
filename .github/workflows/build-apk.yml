@@ -2,10 +2,6 @@ name: Build KeyShortcut APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
 
 permissions:
   contents: read
@@ -15,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -41,7 +38,7 @@ jobs:
             exit 1
           fi
 
-          echo "Found source ZIP: $ZIP"
+          echo "Found: $ZIP"
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"
 
       - name: Extract KeyShortcut source
@@ -57,13 +54,13 @@ jobs:
           MAIN_DIR="$(find extracted -type d -path '*/app/src/main' | head -n 1)"
 
           if [ -z "$MAIN_DIR" ]; then
-            echo "ERROR: Could not find app/src/main in the source ZIP."
-            echo "Contents of extracted ZIP:"
-            find extracted -maxdepth 5 -type f | sort
+            echo "ERROR: Could not find app/src/main."
+            echo "ZIP contents:"
+            find extracted -maxdepth 6 -type f | sort
             exit 1
           fi
 
-          echo "Found Android source at:"
+          echo "Android source found at:"
           echo "$MAIN_DIR"
 
           rm -rf app
@@ -125,4 +122,66 @@ jobs:
                   minSdk 26
                   targetSdk 35
                   versionCode 20
-                  version
+                  versionName '2.0'
+              }
+
+              buildTypes {
+                  debug {
+                      minifyEnabled false
+                  }
+
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          }
+          EOF
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -e
+
+          echo "===== BUILDING KEYSCHORTCUT APK ====="
+
+          gradle --no-daemon --stacktrace :app:assembleDebug
+
+          echo "===== BUILD COMPLETE ====="
+
+          ls -lh app/build/outputs/apk/debug/
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -e
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK was not created."
+            exit 1
+          fi
+
+          if [ ! -s "$APK" ]; then
+            echo "ERROR: APK exists but is empty."
+            exit 1
+          fi
+
+          echo "===== APK VERIFIED ====="
+          ls -lh "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyShortcut-v2-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
