@@ -2,6 +2,13 @@ name: Build KeyShortcut APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -11,90 +18,111 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Find source ZIP
-        shell: bash
-        run: |
-          set -e
-
-          ZIP="$(find . -maxdepth 1 -type f -iname 'KeyShortcutV2-source.zip' -print -quit)"
-
-          if [ -z "$ZIP" ]; then
-            echo "KeyShortcutV2-source.zip was not found."
-            exit 1
-          fi
-
-          mkdir -p source
-          unzip -q "$ZIP" -d source
-
-          if [ ! -f source/KeyShortcutV2/app/build.gradle ]; then
-            echo "KeyShortcut Android project was not found in the source ZIP."
-            exit 1
-          fi
-
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
-          channel: stable
+          gradle-version: '8.10.2'
 
-      - name: Create Flutter Android build project
+      - name: Find source ZIP
         shell: bash
         run: |
           set -e
 
-          mkdir -p build-project
-          cd build-project
+          ZIP="$(find . -maxdepth 2 -type f -name 'KeyShortcutV2-source.zip' | head -n 1)"
 
-          flutter create \
-            --project-name keyshortcut_v2_build \
-            --platforms=android,web \
-            .
-
-      - name: Insert KeyShortcut Android source
-        shell: bash
-        run: |
-          set -e
-
-          rm -rf build-project/android/app/src/main
-
-          mkdir -p build-project/android/app/src/main
-
-          cp -R source/KeyShortcutV2/app/src/main/. \
-                build-project/android/app/src/main/
-
-          cp source/KeyShortcutV2/app/build.gradle \
-             build-project/android/app/build.gradle
-
-      - name: Get Flutter dependencies
-        working-directory: build-project
-        run: flutter pub get
-
-      - name: Build APK
-        working-directory: build-project
-        run: flutter build apk --debug --no-tree-shake-icons
-
-      - name: Verify APK
-        shell: bash
-        run: |
-          set -e
-
-          APK="build-project/build/app/outputs/flutter-apk/app-debug.apk"
-
-          if [ ! -f "$APK" ]; then
-            echo "APK was not created."
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: KeyShortcutV2-source.zip was not found."
             exit 1
           fi
 
-          ls -lh "$APK"
+          echo "Found source ZIP: $ZIP"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: KeyShortcut-debug-apk
-          path: build-project/build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: error
+      - name: Extract KeyShortcut source
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf extracted
+          mkdir -p extracted
+
+          unzip -q "$ZIP" -d extracted
+
+          MAIN_DIR="$(find extracted -type d -path '*/app/src/main' | head -n 1)"
+
+          if [ -z "$MAIN_DIR" ]; then
+            echo "ERROR: Could not find app/src/main in the source ZIP."
+            echo "Contents of extracted ZIP:"
+            find extracted -maxdepth 5 -type f | sort
+            exit 1
+          fi
+
+          echo "Found Android source at:"
+          echo "$MAIN_DIR"
+
+          rm -rf app
+          mkdir -p app/src
+
+          cp -R "$(dirname "$MAIN_DIR")" app/src/main
+
+      - name: Create native Android Gradle project
+        shell: bash
+        run: |
+          set -e
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "KeyShortcut"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+              id 'org.jetbrains.kotlin.android' version '2.0.21' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=false
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
+          android {
+              namespace 'com.example.keyshortcut'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.example.keyshortcut'
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 20
+                  version
