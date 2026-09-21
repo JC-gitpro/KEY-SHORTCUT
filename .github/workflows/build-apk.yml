@@ -1,0 +1,64 @@
+name: Build KeyShortcut APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Find source ZIP
+        shell: bash
+        run: |
+          set -e
+          ZIP="$(find . -maxdepth 1 -type f -iname 'KeyShortcutV2-source.zip' -print -quit)"
+          if [ -z "$ZIP" ]; then
+            echo "KeyShortcutV2-source.zip was not found in the repository root."
+            exit 1
+          fi
+          mkdir -p source
+          unzip -q "$ZIP" -d source
+
+      - name: Detect Flutter project
+        shell: bash
+        run: |
+          set -e
+          if [ -f source/pubspec.yaml ]; then
+            echo "PROJECT_DIR=source" >> "$GITHUB_ENV"
+          else
+            DIR="$(find source -maxdepth 3 -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
+            if [ -z "$DIR" ]; then
+              echo "No Flutter pubspec.yaml was found in the source ZIP."
+              exit 1
+            fi
+            echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Get dependencies
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: flutter build apk --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyShortcut-debug-apk
+          path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
