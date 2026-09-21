@@ -36,6 +36,7 @@ jobs:
               exit 1
             fi
             echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
+          fi
 
       - name: Set up Java
         uses: actions/setup-java@v4
