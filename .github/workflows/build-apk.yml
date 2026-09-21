@@ -15,27 +15,20 @@ jobs:
         shell: bash
         run: |
           set -e
+
           ZIP="$(find . -maxdepth 1 -type f -iname 'KeyShortcutV2-source.zip' -print -quit)"
+
           if [ -z "$ZIP" ]; then
-            echo "KeyShortcutV2-source.zip was not found in the repository root."
+            echo "KeyShortcutV2-source.zip was not found."
             exit 1
           fi
+
           mkdir -p source
           unzip -q "$ZIP" -d source
 
-      - name: Detect Flutter project
-        shell: bash
-        run: |
-          set -e
-          if [ -f source/pubspec.yaml ]; then
-            echo "PROJECT_DIR=source" >> "$GITHUB_ENV"
-          else
-            DIR="$(find source -maxdepth 3 -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
-            if [ -z "$DIR" ]; then
-              echo "No Flutter pubspec.yaml was found in the source ZIP."
-              exit 1
-            fi
-            echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
+          if [ ! -f source/KeyShortcutV2/app/build.gradle ]; then
+            echo "KeyShortcut Android project was not found in the source ZIP."
+            exit 1
           fi
 
       - name: Set up Java
@@ -49,17 +42,59 @@ jobs:
         with:
           channel: stable
 
-      - name: Get dependencies
-        working-directory: ${{ env.PROJECT_DIR }}
+      - name: Create Flutter Android build project
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p build-project
+          cd build-project
+
+          flutter create \
+            --project-name keyshortcut_v2_build \
+            --platforms=android,web \
+            .
+
+      - name: Insert KeyShortcut Android source
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf build-project/android/app/src/main
+
+          mkdir -p build-project/android/app/src/main
+
+          cp -R source/KeyShortcutV2/app/src/main/. \
+                build-project/android/app/src/main/
+
+          cp source/KeyShortcutV2/app/build.gradle \
+             build-project/android/app/build.gradle
+
+      - name: Get Flutter dependencies
+        working-directory: build-project
         run: flutter pub get
 
       - name: Build APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: flutter build apk --debug
+        working-directory: build-project
+        run: flutter build apk --debug --no-tree-shake-icons
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -e
+
+          APK="build-project/build/app/outputs/flutter-apk/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "APK was not created."
+            exit 1
+          fi
+
+          ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: KeyShortcut-debug-apk
-          path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-debug.apk
+          path: build-project/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
