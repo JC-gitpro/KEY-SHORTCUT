@@ -3,16 +3,15 @@ name: Build KeyShortcut APK
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    steps:
+    permissions:
+      contents: read
 
-      - name: Check out repository
+    steps:
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -26,54 +25,57 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Find source ZIP
+      - name: Find and extract KeyShortcut source ZIP
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          ZIP="$(find . -maxdepth 2 -type f -name 'KeyShortcutV2-source.zip' | head -n 1)"
+          ZIP="$(find . -maxdepth 2 -type f \( \
+            -name 'KeyShortcutV2-source.zip' \
+            -o -name '*KeyShortcut*source*.zip' \
+          \) -print -quit)"
 
           if [ -z "$ZIP" ]; then
-            echo "ERROR: KeyShortcutV2-source.zip was not found."
+            echo "::error::Could not find the KeyShortcut source ZIP."
             exit 1
           fi
 
-          echo "Found: $ZIP"
-          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
-
-      - name: Extract KeyShortcut source
-        shell: bash
-        run: |
-          set -e
+          echo "Using source ZIP: $ZIP"
 
           rm -rf extracted
           mkdir -p extracted
-
           unzip -q "$ZIP" -d extracted
 
-          MAIN_DIR="$(find extracted -type d -path '*/app/src/main' | head -n 1)"
+          MANIFEST="$(find extracted \
+            -type f \
+            -path '*/app/src/main/AndroidManifest.xml' \
+            -print -quit)"
 
-          if [ -z "$MAIN_DIR" ]; then
-            echo "ERROR: Could not find app/src/main."
-            echo "ZIP contents:"
-            find extracted -maxdepth 6 -type f | sort
+          if [ -z "$MANIFEST" ]; then
+            echo "::error::The source ZIP does not contain app/src/main/AndroidManifest.xml."
             exit 1
           fi
 
-          echo "Android source found at:"
-          echo "$MAIN_DIR"
+          SOURCE_APP="$(dirname "$(dirname "$(dirname "$MANIFEST")")")"
+          SOURCE_ROOT="$(dirname "$SOURCE_APP")"
 
-          rm -rf app
-          mkdir -p app/src
+          echo "SOURCE_ROOT=$SOURCE_ROOT" >> "$GITHUB_ENV"
+          echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
 
-          cp -R "$(dirname "$MAIN_DIR")" app/src/main
+          echo "Source root: $SOURCE_ROOT"
+          echo "Source app:  $SOURCE_APP"
 
       - name: Create native Android Gradle project
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          cat > settings.gradle <<'EOF'
+          rm -rf android-build
+          mkdir -p android-build/app/src/main
+
+          cp -a "$SOURCE_APP/src/main/." android-build/app/src/main/
+
+          cat > android-build/settings.gradle <<'EOF'
           pluginManagement {
               repositories {
                   google()
@@ -94,20 +96,21 @@ jobs:
           include(":app")
           EOF
 
-          cat > build.gradle <<'EOF'
+          cat > android-build/build.gradle <<'EOF'
           plugins {
-              id 'com.android.application' version '8.7.3' apply false
-              id 'org.jetbrains.kotlin.android' version '2.0.21' apply false
+              id 'com.android.application' version '8.6.1' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.25' apply false
           }
           EOF
 
-          cat > gradle.properties <<'EOF'
+          cat > android-build/gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
           android.useAndroidX=true
-          android.nonTransitiveRClass=false
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
           EOF
 
-          cat > app/build.gradle <<'EOF'
+          cat > android-build/app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
               id 'org.jetbrains.kotlin.android'
@@ -121,15 +124,11 @@ jobs:
                   applicationId 'com.example.keyshortcut'
                   minSdk 26
                   targetSdk 35
-                  versionCode 20
+                  versionCode 3
                   versionName '2.0'
               }
 
               buildTypes {
-                  debug {
-                      minifyEnabled false
-                  }
-
                   release {
                       minifyEnabled false
                   }
@@ -146,42 +145,43 @@ jobs:
           }
           EOF
 
-      - name: Build APK
+          test -f android-build/app/src/main/AndroidManifest.xml
+
+          echo "AndroidManifest.xml FOUND."
+
+          find android-build/app/src/main -type f | sort
+
+      - name: Build debug APK
+        working-directory: android-build
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           echo "===== BUILDING KEYSCHORTCUT APK ====="
 
-          gradle --no-daemon --stacktrace :app:assembleDebug
-
-          echo "===== BUILD COMPLETE ====="
-
-          ls -lh app/build/outputs/apk/debug/
+          gradle --no-daemon :app:assembleDebug
 
       - name: Verify APK
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-
-          if [ ! -f "$APK" ]; then
-            echo "ERROR: APK was not created."
-            exit 1
-          fi
+          APK="android-build/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -s "$APK" ]; then
-            echo "ERROR: APK exists but is empty."
+            echo "::error::APK was not created."
             exit 1
           fi
 
+          unzip -t "$APK" >/dev/null
+
           echo "===== APK VERIFIED ====="
+
           ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v2-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: KeyShortcut-debug-apk
+          path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
