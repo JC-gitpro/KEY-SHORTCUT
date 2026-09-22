@@ -60,7 +60,6 @@ jobs:
           SOURCE_APP="$(dirname "$(dirname "$(dirname "$MANIFEST")")")"
 
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
-
           echo "Source app: $SOURCE_APP"
 
       - name: Create native Android Gradle project
@@ -69,11 +68,9 @@ jobs:
           set -euo pipefail
 
           rm -rf android-build
-
           mkdir -p android-build/app/src/main
 
-          cp -a "$SOURCE_APP/src/main/." \
-            android-build/app/src/main/
+          cp -a "$SOURCE_APP/src/main/." android-build/app/src/main/
 
           cat > android-build/settings.gradle <<'SETTINGS'
           pluginManagement {
@@ -93,7 +90,6 @@ jobs:
           }
 
           rootProject.name = "KeyShortcut"
-
           include(":app")
           SETTINGS
 
@@ -119,15 +115,14 @@ jobs:
 
           android {
               namespace 'com.example.keyshortcut'
-
               compileSdk 35
 
               defaultConfig {
-                  applicationId 'com.example.keyshortcut.test21'
+                  applicationId 'com.example.keyshortcut.test22'
                   minSdk 26
                   targetSdk 35
-                  versionCode 4
-                  versionName '2.1'
+                  versionCode 5
+                  versionName '2.2'
               }
 
               buildTypes {
@@ -163,9 +158,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "=========================================="
-          echo "BUILDING KEYSCHORTCUT V2.1 TEST APK"
-          echo "=========================================="
+          echo "===== BUILDING KEYSCHORTCUT V2.2 TEST APK ====="
 
           gradle --no-daemon :app:assembleDebug
 
@@ -183,15 +176,13 @@ jobs:
 
           unzip -t "$APK" >/dev/null
 
-          echo "=========================================="
-          echo "APK VERIFIED"
-          echo "=========================================="
+          echo "===== APK VERIFIED ====="
 
           ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v2.1-test-apk
+          name: KeyShortcut-v2.2-test-apk
           path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
