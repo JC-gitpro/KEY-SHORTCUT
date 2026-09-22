@@ -121,7 +121,7 @@ jobs:
               compileSdk 35
 
               defaultConfig {
-                  applicationId 'com.example.keyshortcut'
+                  applicationId 'com.example.keyshortcut.test'
                   minSdk 26
                   targetSdk 35
                   versionCode 3
@@ -157,7 +157,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "===== BUILDING KEYSCHORTCUT APK ====="
+          echo "===== BUILDING KEYSCHORTCUT TEST APK ====="
 
           gradle --no-daemon :app:assembleDebug
 
