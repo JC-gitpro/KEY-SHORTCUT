@@ -25,19 +25,19 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Find and extract KeyShortcut v2.4 source ZIP
+      - name: Find and extract KeyShortcut v2.5 source ZIP
         shell: bash
         run: |
           set -euo pipefail
 
           ZIP="$(find . -maxdepth 2 -type f \( \
-            -name 'KeyShortcutV2-v2.4-source.zip' \
-            -o -name 'KeyShortcutV2-source-v2.4.zip' \
-            -o -name '*KeyShortcut*v2.4*source*.zip' \
+            -name 'KeyShortcutV2-v2.5-source.zip' \
+            -o -name 'KeyShortcutV2-source-v2.5.zip' \
+            -o -name '*KeyShortcut*v2.5*source*.zip' \
           \) -print -quit)"
 
           if [ -z "$ZIP" ]; then
-            echo "::error::Could not find the KeyShortcut v2.4 source ZIP."
+            echo "::error::Could not find the KeyShortcut v2.5 source ZIP."
             exit 1
           fi
 
@@ -119,11 +119,11 @@ jobs:
               compileSdk 35
 
               defaultConfig {
-                  applicationId 'com.example.keyshortcut.test24'
+                  applicationId 'com.example.keyshortcut.test25'
                   minSdk 26
                   targetSdk 35
-                  versionCode 7
-                  versionName '2.4'
+                  versionCode 8
+                  versionName '2.5'
               }
 
               buildTypes {
@@ -159,7 +159,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "===== BUILDING KEYSCHORTCUT V2.4 TEST APK ====="
+          echo "===== BUILDING KEYSCHORTCUT V2.5 TEST APK ====="
 
           gradle --no-daemon :app:assembleDebug
 
@@ -184,6 +184,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v2.4-test-apk
+          name: KeyShortcut-v2.5-test-apk
           path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
