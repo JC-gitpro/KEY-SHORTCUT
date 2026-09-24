@@ -34,19 +34,19 @@ jobs:
           echo "KEYSHORTCUT v3.0 SOURCE"
           echo "============================================================"
 
-          ZIP="$(find . -maxdepth 3 -type f \
+          ZIP="$(find . -type f \
             -name 'KeyShortcutV2-v3.0-source.zip' \
             -print -quit)"
 
           if [ -z "$ZIP" ]; then
             echo "::error::Could not find KeyShortcutV2-v3.0-source.zip"
             echo
-            echo "Files found in repository:"
-            find . -maxdepth 3 -type f | sort
+            echo "ZIP files found:"
+            find . -type f -name '*.zip' -print
             exit 1
           fi
 
-          echo "Using source:"
+          echo "Using source ZIP:"
           echo "$ZIP"
 
           rm -rf extracted
@@ -61,6 +61,9 @@ jobs:
 
           if [ -z "$MANIFEST" ]; then
             echo "::error::Could not find app/src/main/AndroidManifest.xml inside the v3.0 source ZIP."
+            echo
+            echo "Extracted files:"
+            find extracted -maxdepth 8 -type f | sort
             exit 1
           fi
 
@@ -69,35 +72,41 @@ jobs:
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
 
           echo
-          echo "Source app:"
+          echo "Source app directory:"
           echo "$SOURCE_APP"
 
           echo
-          echo "===== VERIFYING V3.0 SOURCE ====="
+          echo "===== VERIFYING SOURCE ====="
 
-          if [ ! -f "$SOURCE_APP/app/src/main/java/com/example/keyshortcut/StorageManager.kt" ]; then
+          if [ ! -f "$SOURCE_APP/src/main/AndroidManifest.xml" ]; then
+            echo "::error::AndroidManifest.xml is missing."
+            exit 1
+          fi
+
+          if [ ! -f "$SOURCE_APP/src/main/java/com/example/keyshortcut/StorageManager.kt" ]; then
             echo "::error::StorageManager.kt is missing."
             exit 1
           fi
 
           if ! grep -q "fun isLinked" \
-            "$SOURCE_APP/app/src/main/java/com/example/keyshortcut/StorageManager.kt"; then
+            "$SOURCE_APP/src/main/java/com/example/keyshortcut/StorageManager.kt"; then
             echo "::error::StorageManager.isLinked() was not found."
             exit 1
           fi
 
-          echo "StorageManager.isLinked(): FOUND"
-
-          if [ ! -f "$SOURCE_APP/app/src/main/java/com/example/keyshortcut/VoiceRecorderService.kt" ]; then
+          if [ ! -f "$SOURCE_APP/src/main/java/com/example/keyshortcut/VoiceRecorderService.kt" ]; then
             echo "::error::VoiceRecorderService.kt is missing."
             exit 1
           fi
 
+          echo "AndroidManifest.xml: FOUND"
+          echo "StorageManager.kt: FOUND"
+          echo "StorageManager.isLinked(): FOUND"
           echo "VoiceRecorderService.kt: FOUND"
 
           echo
           echo "===== SOURCE FILES ====="
-          find "$SOURCE_APP/app/src/main" -type f | sort
+          find "$SOURCE_APP/src/main" -type f | sort
 
       - name: Create native Android Gradle project
         shell: bash
@@ -112,7 +121,10 @@ jobs:
 
           mkdir -p android-build/app/src/main
 
-          cp -a "$SOURCE_APP/app/src/main/." \
+          # IMPORTANT:
+          # SOURCE_APP already points to the KeyShortcutV2 project folder.
+          # Therefore the correct path is src/main, NOT app/src/main.
+          cp -a "$SOURCE_APP/src/main/." \
             android-build/app/src/main/
 
           cat > android-build/settings.gradle <<'SETTINGS'
@@ -165,13 +177,9 @@ jobs:
 
               defaultConfig {
                   applicationId 'com.example.keyshortcut.test30'
-
                   minSdk 26
-
                   targetSdk 35
-
                   versionCode 10
-
                   versionName '3.0'
               }
 
@@ -201,18 +209,13 @@ jobs:
               exit 1
           fi
 
+          echo
+          echo "===== ANDROID PROJECT CREATED ====="
+
           echo "AndroidManifest.xml: FOUND"
 
           echo
-          echo "===== VERIFYING ANDROID PROJECT ====="
-
-          grep -R "StorageManager" \
-            android-build/app/src/main/java/com/example/keyshortcut \
-            || true
-
-          echo
           echo "===== ANDROID SOURCE FILES ====="
-
           find android-build/app/src/main -type f | sort
 
       - name: Build KeyShortcut v3.0
