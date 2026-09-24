@@ -59,13 +59,12 @@ jobs:
 
           SOURCE_APP="${MANIFEST%/src/main/AndroidManifest.xml}"
 
-          if [ ! -d "$SOURCE_APP/src/main" ]; then
-            echo "::error::Invalid source directory: $SOURCE_APP"
-            exit 1
-          fi
+          test -d "$SOURCE_APP/src/main"
 
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
-          echo "Source app: $SOURCE_APP"
+
+          echo "Source app:"
+          echo "$SOURCE_APP"
 
       - name: Create Gradle project
         shell: bash
@@ -75,91 +74,91 @@ jobs:
           rm -rf android-build
           mkdir -p android-build/app/src/main
 
-          echo "Copying Android source..."
-
           cp -R "$SOURCE_APP/src/main/." android-build/app/src/main/
 
           test -f android-build/app/src/main/AndroidManifest.xml
 
-          cat > android-build/settings.gradle <<'EOF'
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
+          printf '%s\n' \
+            'pluginManagement {' \
+            '    repositories {' \
+            '        google()' \
+            '        mavenCentral()' \
+            '        gradlePluginPortal()' \
+            '    }' \
+            '}' \
+            '' \
+            'dependencyResolutionManagement {' \
+            '    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)' \
+            '    repositories {' \
+            '        google()' \
+            '        mavenCentral()' \
+            '    }' \
+            '}' \
+            '' \
+            'rootProject.name = "KeyShortcut"' \
+            'include(":app")' \
+            > android-build/settings.gradle
 
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
+          printf '%s\n' \
+            'plugins {' \
+            '    id '\''com.android.application'\'' version '\''8.6.1'\'' apply false' \
+            '    id '\''org.jetbrains.kotlin.android'\'' version '\''1.9.25'\'' apply false' \
+            '}' \
+            > android-build/build.gradle
 
-          rootProject.name = "KeyShortcut"
-          include(":app")
-          EOF
+          printf '%s\n' \
+            'org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
+            'android.useAndroidX=true' \
+            'android.nonTransitiveRClass=true' \
+            'kotlin.code.style=official' \
+            > android-build/gradle.properties
 
-          cat > android-build/build.gradle <<'EOF'
-          plugins {
-              id 'com.android.application' version '8.6.1' apply false
-              id 'org.jetbrains.kotlin.android' version '1.9.25' apply false
-          }
-          EOF
+          printf '%s\n' \
+            'plugins {' \
+            '    id '\''com.android.application'\''' \
+            '    id '\''org.jetbrains.kotlin.android'\''' \
+            '}' \
+            '' \
+            'android {' \
+            '    namespace '\''com.example.keyshortcut'\''' \
+            '    compileSdk 35' \
+            '' \
+            '    defaultConfig {' \
+            '        applicationId '\''com.example.keyshortcut.test25'\''' \
+            '        minSdk 26' \
+            '        targetSdk 35' \
+            '        versionCode 9' \
+            '        versionName '\''2.5-storage-fix'\''' \
+            '    }' \
+            '' \
+            '    buildTypes {' \
+            '        release {' \
+            '            minifyEnabled false' \
+            '        }' \
+            '    }' \
+            '' \
+            '    compileOptions {' \
+            '        sourceCompatibility JavaVersion.VERSION_17' \
+            '        targetCompatibility JavaVersion.VERSION_17' \
+            '    }' \
+            '' \
+            '    kotlinOptions {' \
+            '        jvmTarget = '\''17'\''' \
+            '    }' \
+            '}' \
+            > android-build/app/build.gradle
 
-          cat > android-build/gradle.properties <<'EOF'
-          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
-          android.useAndroidX=true
-          android.nonTransitiveRClass=true
-          kotlin.code.style=official
-          EOF
-
-          cat > android-build/app/build.gradle <<'EOF'
-          plugins {
-              id 'com.android.application'
-              id 'org.jetbrains.kotlin.android'
-          }
-
-          android {
-              namespace 'com.example.keyshortcut'
-              compileSdk 35
-
-              defaultConfig {
-                  applicationId 'com.example.keyshortcut.test25'
-                  minSdk 26
-                  targetSdk 35
-                  versionCode 8
-                  versionName '2.5'
-              }
-
-              buildTypes {
-                  release {
-                      minifyEnabled false
-                  }
-              }
-
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-
-              kotlinOptions {
-                  jvmTarget = '17'
-              }
-          }
-          EOF
-
-          echo "Gradle project ready."
-
-          find android-build/app/src/main -type f | sort
+          echo "Gradle project created successfully."
 
       - name: Build APK
         working-directory: android-build
         shell: bash
         run: |
           set -euo pipefail
+
+          echo "=========================================="
+          echo "BUILDING KEYSKORTCUT V2.5 STORAGE FIX"
+          echo "=========================================="
 
           gradle --no-daemon --stacktrace :app:assembleDebug
 
@@ -171,14 +170,15 @@ jobs:
           APK="android-build/app/build/outputs/apk/debug/app-debug.apk"
 
           test -s "$APK"
+
           unzip -t "$APK" >/dev/null
 
-          echo "APK verified:"
+          echo "APK VERIFIED:"
           ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v2.5-test-apk
+          name: KeyShortcut-v2.5-storage-fix-apk
           path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
