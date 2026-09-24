@@ -128,7 +128,7 @@ jobs:
             '        minSdk 26' \
             '        targetSdk 35' \
             '        versionCode 9' \
-            '        versionName '\''2.5-storage-fix'\''' \
+            '        versionName '\''2.5-storage-fix-v2'\''' \
             '    }' \
             '' \
             '    buildTypes {' \
@@ -146,9 +146,13 @@ jobs:
             '        jvmTarget = '\''17'\''' \
             '    }' \
             '}' \
+            '' \
+            'dependencies {' \
+            '    implementation "androidx.documentfile:documentfile:1.0.1"' \
+            '}' \
             > android-build/app/build.gradle
 
-          echo "Gradle project created successfully."
+          echo "Gradle project created."
 
       - name: Build APK
         working-directory: android-build
@@ -157,7 +161,7 @@ jobs:
           set -euo pipefail
 
           echo "=========================================="
-          echo "BUILDING KEYSKORTCUT V2.5 STORAGE FIX"
+          echo "BUILDING KEYSKORTCUT V2.5 STORAGE FIX V2"
           echo "=========================================="
 
           gradle --no-daemon --stacktrace :app:assembleDebug
@@ -170,7 +174,6 @@ jobs:
           APK="android-build/app/build/outputs/apk/debug/app-debug.apk"
 
           test -s "$APK"
-
           unzip -t "$APK" >/dev/null
 
           echo "APK VERIFIED:"
@@ -179,6 +182,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v2.5-storage-fix-apk
+          name: KeyShortcut-v2.5-storage-fix-v2-apk
           path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
