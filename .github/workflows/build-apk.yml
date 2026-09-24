@@ -11,47 +11,66 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Set up Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.10.2'
+          gradle-version: "8.10.2"
 
-      - name: Find and extract KeyShortcut v2.5 source ZIP
+      - name: Find source ZIP
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
-          ZIP="$(find . -maxdepth 2 -type f \
-            -name 'KeyShortcutV2-v2.5-source.zip' \
-            -o -name 'KeyShortcutV2-source-v2.5.zip' \
-            -o -name '*KeyShortcut*v2.5*source*.zip' \
-          -print -quit)"
+          ZIP=$(find . -maxdepth 2 -type f -name 'KeyShortcutV2-v2.5-source.zip' -print -quit)
 
           if [ -z "$ZIP" ]; then
-            echo "::error::Could not find the KeyShortcut v2.5 source ZIP."
+            echo "::error::KeyShortcutV2-v2.5-source.zip was not found in the repository."
             exit 1
           fi
 
-          echo "Using source ZIP: $ZIP"
+          echo "Found source: $ZIP"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Extract source
+        shell: bash
+        run: |
+          set -e
 
           rm -rf extracted
-          mkdir -p extracted
+          mkdir extracted
 
           unzip -q "$ZIP" -d extracted
 
-          MANIFEST="$(find extracted \
-            -type f \
-            -path '*/app/src/main/AndroidManifest.xml' \
-            -print -quit)"
+          MANIFEST=$(find extracted -type f -path '*/app/src/main/AndroidManifest.xml' -print -quit)
 
           if [ -z "$MANIFEST" ]; then
-            echo "::error::The source ZIP does not contain app/src/main/AndroidManifest
+            echo "::error::AndroidManifest.xml was not found."
+            exit 1
+          fi
+
+          SOURCE_APP=$(dirname "$(dirname "$(dirname "$MANIFEST")")")
+
+          echo "Source application directory:"
+          echo "$SOURCE_APP"
+
+          echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
+
+      - name: Create Gradle project
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf android-build
+
+          mkdir -p android-build/app/src/main
+
+          cp -a "$SOURCE_APP/src/main/."
