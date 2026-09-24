@@ -30,21 +30,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          ZIP="$(find . -maxdepth 3 -type f \
-            -name 'KeyShortcutV2-v2.5-source.zip' \
-            -print -quit)"
+          ZIP="$(find . -maxdepth 3 -type f -name 'KeyShortcutV2-v2.5-source.zip' -print -quit)"
 
           if [ -z "$ZIP" ]; then
             echo "::error::KeyShortcutV2-v2.5-source.zip was not found."
-            echo "Files found in repository:"
-            find . -maxdepth 3 -type f | sort
             exit 1
           fi
 
-          echo "Using source ZIP:"
-          echo "$ZIP"
-
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          echo "Using source: $ZIP"
 
       - name: Extract source
         shell: bash
@@ -56,13 +50,7 @@ jobs:
 
           unzip -q "$ZIP" -d extracted
 
-          echo "===== EXTRACTED FILES ====="
-          find extracted -maxdepth 6 -type f | sort
-
-          MANIFEST="$(find extracted \
-            -type f \
-            -path '*/app/src/main/AndroidManifest.xml' \
-            -print -quit)"
+          MANIFEST="$(find extracted -type f -path '*/app/src/main/AndroidManifest.xml' -print -quit)"
 
           if [ -z "$MANIFEST" ]; then
             echo "::error::Could not find app/src/main/AndroidManifest.xml"
@@ -72,15 +60,12 @@ jobs:
           SOURCE_APP="${MANIFEST%/src/main/AndroidManifest.xml}"
 
           if [ ! -d "$SOURCE_APP/src/main" ]; then
-            echo "::error::Source app directory is invalid:"
-            echo "$SOURCE_APP"
+            echo "::error::Invalid source directory: $SOURCE_APP"
             exit 1
           fi
 
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
-
-          echo "===== SOURCE APP ====="
-          echo "$SOURCE_APP"
+          echo "Source app: $SOURCE_APP"
 
       - name: Create Gradle project
         shell: bash
@@ -88,110 +73,86 @@ jobs:
           set -euo pipefail
 
           rm -rf android-build
-
           mkdir -p android-build/app/src/main
 
-          echo "===== COPYING ANDROID SOURCE ====="
+          echo "Copying Android source..."
 
-          rsync -a \
-            "$SOURCE_APP/src/main/" \
-            "android-build/app/src/main/"
+          cp -R "$SOURCE_APP/src/main/." android-build/app/src/main/
 
-          echo "===== VERIFYING SOURCE COPY ====="
-
-          test -f "android-build/app/src/main/AndroidManifest.xml"
-
-          echo "AndroidManifest.xml FOUND."
-
-          echo "===== CREATING SETTINGS.GRADLE ====="
-
-          printf '%s\n' \
-            'pluginManagement {' \
-            '    repositories {' \
-            '        google()' \
-            '        mavenCentral()' \
-            '        gradlePluginPortal()' \
-            '    }' \
-            '}' \
-            '' \
-            'dependencyResolutionManagement {' \
-            '    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)' \
-            '    repositories {' \
-            '        google()' \
-            '        mavenCentral()' \
-            '    }' \
-            '}' \
-            '' \
-            'rootProject.name = "KeyShortcut"' \
-            'include(":app")' \
-            > android-build/settings.gradle
-
-          echo "===== CREATING ROOT BUILD.GRADLE ====="
-
-          printf '%s\n' \
-            'plugins {' \
-            '    id '\''com.android.application'\'' version '\''8.6.1'\'' apply false' \
-            '    id '\''org.jetbrains.kotlin.android'\'' version '\''1.9.25'\'' apply false' \
-            '}' \
-            > android-build/build.gradle
-
-          echo "===== CREATING GRADLE.PROPERTIES ====="
-
-          printf '%s\n' \
-            'org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
-            'android.useAndroidX=true' \
-            'android.nonTransitiveRClass=true' \
-            'kotlin.code.style=official' \
-            > android-build/gradle.properties
-
-          echo "===== CREATING APP BUILD.GRADLE ====="
-
-          printf '%s\n' \
-            'plugins {' \
-            '    id '\''com.android.application'\''' \
-            '    id '\''org.jetbrains.kotlin.android'\''' \
-            '}' \
-            '' \
-            'android {' \
-            '    namespace '\''com.example.keyshortcut'\''' \
-            '    compileSdk 35' \
-            '' \
-            '    defaultConfig {' \
-            '        applicationId '\''com.example.keyshortcut.test25'\''' \
-            '        minSdk 26' \
-            '        targetSdk 35' \
-            '        versionCode 8' \
-            '        versionName '\''2.5'\''' \
-            '    }' \
-            '' \
-            '    buildTypes {' \
-            '        release {' \
-            '            minifyEnabled false' \
-            '        }' \
-            '    }' \
-            '' \
-            '    compileOptions {' \
-            '        sourceCompatibility JavaVersion.VERSION_17' \
-            '        targetCompatibility JavaVersion.VERSION_17' \
-            '    }' \
-            '' \
-            '    kotlinOptions {' \
-            '        jvmTarget = '\''17'\''' \
-            '    }' \
-            '}' \
-            > android-build/app/build.gradle
-
-          echo "===== FINAL PROJECT CHECK ====="
-
-          test -f android-build/settings.gradle
-          test -f android-build/build.gradle
-          test -f android-build/gradle.properties
-          test -f android-build/app/build.gradle
           test -f android-build/app/src/main/AndroidManifest.xml
 
-          echo "All required Gradle files exist."
+          cat > android-build/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
 
-          echo "===== SOURCE FILES ====="
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "KeyShortcut"
+          include(":app")
+          EOF
+
+          cat > android-build/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.25' apply false
+          }
+          EOF
+
+          cat > android-build/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          EOF
+
+          cat > android-build/app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
+          android {
+              namespace 'com.example.keyshortcut'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.example.keyshortcut.test25'
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 8
+                  versionName '2.5'
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          }
+          EOF
+
+          echo "Gradle project ready."
+
           find android-build/app/src/main -type f | sort
 
       - name: Build APK
@@ -199,10 +160,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          echo "=============================================="
-          echo "BUILDING KEYSKORTCUT V2.5"
-          echo "=============================================="
 
           gradle --no-daemon --stacktrace :app:assembleDebug
 
@@ -213,22 +170,10 @@ jobs:
 
           APK="android-build/app/build/outputs/apk/debug/app-debug.apk"
 
-          if [ ! -f "$APK" ]; then
-            echo "::error::APK was not created."
-            exit 1
-          fi
-
-          if [ ! -s "$APK" ]; then
-            echo "::error::APK is empty."
-            exit 1
-          fi
-
+          test -s "$APK"
           unzip -t "$APK" >/dev/null
 
-          echo "=============================================="
-          echo "APK SUCCESSFULLY CREATED"
-          echo "=============================================="
-
+          echo "APK verified:"
           ls -lh "$APK"
 
       - name: Upload APK
