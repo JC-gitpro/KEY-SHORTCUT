@@ -1,4 +1,4 @@
-name: Build KeyShortcut APK
+name: Build KeyShortcut v3.0 APK
 
 on:
   workflow_dispatch:
@@ -11,160 +11,221 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
-      - name: Setup Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.10.2"
+          gradle-version: '8.10.2'
 
-      - name: Find source ZIP
+      - name: Find and extract KeyShortcut v3.0 source
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP="$(find . -maxdepth 3 -type f -name 'KeyShortcutV2-v2.5-source.zip' -print -quit)"
+          echo "============================================================"
+          echo "KEYSHORTCUT v3.0 SOURCE"
+          echo "============================================================"
+
+          ZIP="$(find . -maxdepth 3 -type f \
+            -name 'KeyShortcutV2-v3.0-source.zip' \
+            -print -quit)"
 
           if [ -z "$ZIP" ]; then
-            echo "::error::KeyShortcutV2-v2.5-source.zip was not found."
+            echo "::error::Could not find KeyShortcutV2-v3.0-source.zip"
+            echo
+            echo "Files found in repository:"
+            find . -maxdepth 3 -type f | sort
             exit 1
           fi
 
-          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
-          echo "Using source: $ZIP"
-
-      - name: Extract source
-        shell: bash
-        run: |
-          set -euo pipefail
+          echo "Using source:"
+          echo "$ZIP"
 
           rm -rf extracted
           mkdir -p extracted
 
           unzip -q "$ZIP" -d extracted
 
-          MANIFEST="$(find extracted -type f -path '*/app/src/main/AndroidManifest.xml' -print -quit)"
+          MANIFEST="$(find extracted \
+            -type f \
+            -path '*/app/src/main/AndroidManifest.xml' \
+            -print -quit)"
 
           if [ -z "$MANIFEST" ]; then
-            echo "::error::Could not find app/src/main/AndroidManifest.xml"
+            echo "::error::Could not find app/src/main/AndroidManifest.xml inside the v3.0 source ZIP."
             exit 1
           fi
 
-          SOURCE_APP="${MANIFEST%/src/main/AndroidManifest.xml}"
-
-          test -d "$SOURCE_APP/src/main"
+          SOURCE_APP="$(dirname "$(dirname "$(dirname "$MANIFEST")")")"
 
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
 
+          echo
           echo "Source app:"
           echo "$SOURCE_APP"
 
-      - name: Create Gradle project
+          echo
+          echo "===== VERIFYING V3.0 SOURCE ====="
+
+          if [ ! -f "$SOURCE_APP/app/src/main/java/com/example/keyshortcut/StorageManager.kt" ]; then
+            echo "::error::StorageManager.kt is missing."
+            exit 1
+          fi
+
+          if ! grep -q "fun isLinked" \
+            "$SOURCE_APP/app/src/main/java/com/example/keyshortcut/StorageManager.kt"; then
+            echo "::error::StorageManager.isLinked() was not found."
+            exit 1
+          fi
+
+          echo "StorageManager.isLinked(): FOUND"
+
+          if [ ! -f "$SOURCE_APP/app/src/main/java/com/example/keyshortcut/VoiceRecorderService.kt" ]; then
+            echo "::error::VoiceRecorderService.kt is missing."
+            exit 1
+          fi
+
+          echo "VoiceRecorderService.kt: FOUND"
+
+          echo
+          echo "===== SOURCE FILES ====="
+          find "$SOURCE_APP/app/src/main" -type f | sort
+
+      - name: Create native Android Gradle project
         shell: bash
         run: |
           set -euo pipefail
 
+          echo "============================================================"
+          echo "CREATING ANDROID GRADLE PROJECT"
+          echo "============================================================"
+
           rm -rf android-build
+
           mkdir -p android-build/app/src/main
 
-          cp -R "$SOURCE_APP/src/main/." android-build/app/src/main/
+          cp -a "$SOURCE_APP/app/src/main/." \
+            android-build/app/src/main/
 
-          test -f android-build/app/src/main/AndroidManifest.xml
+          cat > android-build/settings.gradle <<'SETTINGS'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
 
-          printf '%s\n' \
-            'pluginManagement {' \
-            '    repositories {' \
-            '        google()' \
-            '        mavenCentral()' \
-            '        gradlePluginPortal()' \
-            '    }' \
-            '}' \
-            '' \
-            'dependencyResolutionManagement {' \
-            '    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)' \
-            '    repositories {' \
-            '        google()' \
-            '        mavenCentral()' \
-            '    }' \
-            '}' \
-            '' \
-            'rootProject.name = "KeyShortcut"' \
-            'include(":app")' \
-            > android-build/settings.gradle
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
 
-          printf '%s\n' \
-            'plugins {' \
-            '    id '\''com.android.application'\'' version '\''8.6.1'\'' apply false' \
-            '    id '\''org.jetbrains.kotlin.android'\'' version '\''1.9.25'\'' apply false' \
-            '}' \
-            > android-build/build.gradle
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
 
-          printf '%s\n' \
-            'org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
-            'android.useAndroidX=true' \
-            'android.nonTransitiveRClass=true' \
-            'kotlin.code.style=official' \
-            > android-build/gradle.properties
+          rootProject.name = "KeyShortcut"
 
-          printf '%s\n' \
-            'plugins {' \
-            '    id '\''com.android.application'\''' \
-            '    id '\''org.jetbrains.kotlin.android'\''' \
-            '}' \
-            '' \
-            'android {' \
-            '    namespace '\''com.example.keyshortcut'\''' \
-            '    compileSdk 35' \
-            '' \
-            '    defaultConfig {' \
-            '        applicationId '\''com.example.keyshortcut.test25'\''' \
-            '        minSdk 26' \
-            '        targetSdk 35' \
-            '        versionCode 9' \
-            '        versionName '\''2.5-storage-fix-v2'\''' \
-            '    }' \
-            '' \
-            '    buildTypes {' \
-            '        release {' \
-            '            minifyEnabled false' \
-            '        }' \
-            '    }' \
-            '' \
-            '    compileOptions {' \
-            '        sourceCompatibility JavaVersion.VERSION_17' \
-            '        targetCompatibility JavaVersion.VERSION_17' \
-            '    }' \
-            '' \
-            '    kotlinOptions {' \
-            '        jvmTarget = '\''17'\''' \
-            '    }' \
-            '}' \
-            '' \
-            'dependencies {' \
-            '    implementation "androidx.documentfile:documentfile:1.0.1"' \
-            '}' \
-            > android-build/app/build.gradle
+          include(":app")
+          SETTINGS
 
-          echo "Gradle project created."
+          cat > android-build/build.gradle <<'ROOT'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.25' apply false
+          }
+          ROOT
 
-      - name: Build APK
+          cat > android-build/gradle.properties <<'PROPS'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          PROPS
+
+          cat > android-build/app/build.gradle <<'APP'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
+          android {
+              namespace 'com.example.keyshortcut'
+
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.example.keyshortcut.test30'
+
+                  minSdk 26
+
+                  targetSdk 35
+
+                  versionCode 10
+
+                  versionName '3.0'
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          }
+
+          dependencies {
+              implementation "androidx.documentfile:documentfile:1.0.1"
+          }
+          APP
+
+          if [ ! -f android-build/app/src/main/AndroidManifest.xml ]; then
+              echo "::error::AndroidManifest.xml was not copied."
+              exit 1
+          fi
+
+          echo "AndroidManifest.xml: FOUND"
+
+          echo
+          echo "===== VERIFYING ANDROID PROJECT ====="
+
+          grep -R "StorageManager" \
+            android-build/app/src/main/java/com/example/keyshortcut \
+            || true
+
+          echo
+          echo "===== ANDROID SOURCE FILES ====="
+
+          find android-build/app/src/main -type f | sort
+
+      - name: Build KeyShortcut v3.0
         working-directory: android-build
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=========================================="
-          echo "BUILDING KEYSKORTCUT V2.5 STORAGE FIX V2"
-          echo "=========================================="
+          echo "============================================================"
+          echo "BUILDING KEYSCHORTCUT v3.0"
+          echo "============================================================"
 
-          gradle --no-daemon --stacktrace :app:assembleDebug
+          gradle --no-daemon :app:assembleDebug
 
       - name: Verify APK
         shell: bash
@@ -173,15 +234,29 @@ jobs:
 
           APK="android-build/app/build/outputs/apk/debug/app-debug.apk"
 
-          test -s "$APK"
+          echo "============================================================"
+          echo "VERIFYING APK"
+          echo "============================================================"
+
+          if [ ! -f "$APK" ]; then
+              echo "::error::APK was not created."
+              exit 1
+          fi
+
+          if [ ! -s "$APK" ]; then
+              echo "::error::APK exists but is empty."
+              exit 1
+          fi
+
           unzip -t "$APK" >/dev/null
 
-          echo "APK VERIFIED:"
+          echo "APK verification passed."
+
           ls -lh "$APK"
 
-      - name: Upload APK
+      - name: Upload KeyShortcut v3.0 APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v2.5-storage-fix-v2-apk
+          name: KeyShortcut-v3.0-test-apk
           path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
