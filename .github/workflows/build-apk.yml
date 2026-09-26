@@ -1,4 +1,4 @@
-name: Build KeyShortcut v4.0 APK
+name: Build KeyShortcut v5.0 APK
 
 on:
   workflow_dispatch:
@@ -25,59 +25,54 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Find and extract KeyShortcut v4 source
+      - name: Find and extract v5 source ZIP
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED='KeyShortcutV4-v4zipsource.zip'
+          EXPECTED='KeyShortcutV5-v5zipsource.zip'
           SOURCE_ZIP="$(find . -type f -name "$EXPECTED" -print -quit || true)"
 
           if [ -z "$SOURCE_ZIP" ]; then
-            echo "Exact source ZIP not found. Checking uploaded package ZIPs..."
+            echo "Source ZIP not at repository root; checking package ZIPs..."
             rm -rf package-search
             mkdir -p package-search
-            found=''
-
-            while IFS= read -r candidate; do
+            while IFS= read -r outer; do
               rm -rf package-search/*
-              if unzip -q "$candidate" -d package-search 2>/dev/null; then
+              if unzip -q "$outer" -d package-search 2>/dev/null; then
                 nested="$(find package-search -type f -name "$EXPECTED" -print -quit || true)"
                 if [ -n "$nested" ]; then
                   cp "$nested" "$RUNNER_TEMP/$EXPECTED"
-                  found="$RUNNER_TEMP/$EXPECTED"
-                  echo "Found source ZIP inside: $candidate"
+                  SOURCE_ZIP="$RUNNER_TEMP/$EXPECTED"
+                  echo "Found nested source inside $outer"
                   break
                 fi
               fi
             done < <(find . -type f -name '*.zip' -print)
-
-            SOURCE_ZIP="$found"
           fi
 
           if [ -z "$SOURCE_ZIP" ]; then
-            echo "::error::Could not find $EXPECTED. Upload the source ZIP or complete v4 package ZIP."
-            echo "ZIP files found:"
+            echo "::error::Could not find $EXPECTED or a package containing it."
             find . -type f -name '*.zip' -print
             exit 1
           fi
 
-          echo "Using source: $SOURCE_ZIP"
+          echo "Using: $SOURCE_ZIP"
           rm -rf extracted
           mkdir -p extracted
           unzip -q "$SOURCE_ZIP" -d extracted
 
           MANIFEST="$(find extracted -type f -path '*/app/src/main/AndroidManifest.xml' -print -quit || true)"
           if [ -z "$MANIFEST" ]; then
-            echo "::error::Selected ZIP does not contain app/src/main/AndroidManifest.xml."
+            echo "::error::The selected ZIP does not contain app/src/main/AndroidManifest.xml"
             find extracted -maxdepth 8 -type f | sort
             exit 1
           fi
 
           SOURCE_APP="$(dirname "$(dirname "$(dirname "$MANIFEST")")")"
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
-          echo "Source module: $SOURCE_APP"
+          echo "Android module: $SOURCE_APP"
 
-      - name: Verify v4 storage and recorder source
+      - name: Verify v5 recorder source
         shell: bash
         run: |
           set -euo pipefail
@@ -85,22 +80,23 @@ jobs:
 
           for file in \
             "$MAIN/AndroidManifest.xml" \
-            "$MAIN/java/com/example/keyshortcut/StorageManager.kt" \
-            "$MAIN/java/com/example/keyshortcut/RecordingStore.kt" \
+            "$MAIN/java/com/example/keyshortcut/VoiceRecorderActivity.kt" \
             "$MAIN/java/com/example/keyshortcut/VoiceRecorderService.kt" \
-            "$MAIN/java/com/example/keyshortcut/VoiceRecorderActivity.kt"; do
+            "$MAIN/java/com/example/keyshortcut/RecordingStore.kt" \
+            "$MAIN/java/com/example/keyshortcut/TranscriptEngine.kt" \
+            "$MAIN/java/com/example/keyshortcut/AudioCondensor.kt" \
+            "$MAIN/java/com/example/keyshortcut/KeyComboService.kt" \
+            "$MAIN/java/com/example/keyshortcut/Cfg.kt"; do
             if [ ! -f "$file" ]; then
-              echo "::error::Required v4 source file missing: $file"
+              echo "::error::Required v5 source missing: $file"
               exit 1
             fi
           done
 
-          grep -q 'DocumentFile.fromTreeUri' "$MAIN/java/com/example/keyshortcut/StorageManager.kt"
+          grep -q 'Quadruple tap' "$MAIN/java/com/example/keyshortcut/Cfg.kt"
+          grep -q 'voice_toggle' "$MAIN/java/com/example/keyshortcut/Cfg.kt"
           grep -q 'takePersistableUriPermission' "$MAIN/java/com/example/keyshortcut/StorageManager.kt"
-          grep -q 'FileInputStream(temp)' "$MAIN/java/com/example/keyshortcut/VoiceRecorderService.kt"
-          grep -q 'ACTION_OPEN_DOCUMENT_TREE' "$MAIN/java/com/example/keyshortcut/VoiceRecorderActivity.kt"
-
-          echo "v4 storage and recorder source checks passed."
+          echo "v5 source checks passed."
 
       - name: Create native Android Gradle project
         shell: bash
@@ -154,11 +150,11 @@ jobs:
               compileSdk 35
 
               defaultConfig {
-                  applicationId 'com.example.keyshortcut.test40'
+                  applicationId 'com.example.keyshortcut.test50'
                   minSdk 26
                   targetSdk 35
-                  versionCode 11
-                  versionName '4.0'
+                  versionCode 12
+                  versionName '5.0'
               }
 
               buildTypes {
@@ -179,14 +175,15 @@ jobs:
 
           dependencies {
               implementation 'androidx.documentfile:documentfile:1.0.1'
+              implementation 'com.alphacephei:vosk-android:0.3.75'
           }
           APP
 
           test -f android-build/app/src/main/AndroidManifest.xml
-          echo "Native Android project created."
+          echo "Native Android project prepared."
           find android-build/app/src/main -type f | sort
 
-      - name: Build KeyShortcut v4.0
+      - name: Build KeyShortcut v5.0
         working-directory: android-build
         shell: bash
         run: |
@@ -200,11 +197,12 @@ jobs:
           APK='android-build/app/build/outputs/apk/debug/app-debug.apk'
           test -s "$APK"
           unzip -t "$APK" >/dev/null
+          echo "APK verified:"
           ls -lh "$APK"
 
-      - name: Upload v4.0 APK
+      - name: Upload v5.0 APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v4.0-test-apk
+          name: KeyShortcut-v5.0-test-apk
           path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
