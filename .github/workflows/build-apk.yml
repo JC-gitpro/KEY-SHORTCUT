@@ -1,4 +1,4 @@
-name: Build KeyShortcut v6.0 APK
+name: Build KeyShortcut v7.0 APK
 
 on:
   workflow_dispatch:
@@ -24,48 +24,47 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Find and extract v6 source
+      - name: Find and extract v7 source ZIP
         shell: bash
         run: |
           set -euo pipefail
-          ZIP="$(find . -type f -name 'KeyShortcutV6-v6zipsource.zip' -print -quit || true)"
-
+          ZIP="$(find . -type f -name 'KeyShortcutV7-v7zipsource.zip' -print -quit || true)"
           if [ -z "$ZIP" ]; then
-            echo "::error::Upload KeyShortcutV6-v6zipsource.zip to the repository root."
+            echo "::error::Upload KeyShortcutV7-v7zipsource.zip to the repository root."
             find . -type f -name '*.zip' -print
             exit 1
           fi
 
           rm -rf extracted
-          mkdir extracted
+          mkdir -p extracted
           unzip -q "$ZIP" -d extracted
 
           MANIFEST="$(find extracted -type f -path '*/app/src/main/AndroidManifest.xml' -print -quit || true)"
           if [ -z "$MANIFEST" ]; then
-            echo "::error::Source ZIP has no app/src/main/AndroidManifest.xml"
+            echo "::error::ZIP does not contain app/src/main/AndroidManifest.xml"
             find extracted -maxdepth 8 -type f | sort
             exit 1
           fi
 
           SOURCE_APP="$(dirname "$(dirname "$(dirname "$MANIFEST")")")"
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
-          echo "Source module: $SOURCE_APP"
+          echo "Using Android module: $SOURCE_APP"
 
-      - name: Verify v6 editor source
+      - name: Verify v7 fixes are present
         shell: bash
         run: |
           set -euo pipefail
-          SRC="$SOURCE_APP/src/main/java/com/example/keyshortcut"
+          ACTIVITY="$SOURCE_APP/src/main/java/com/example/keyshortcut/VoiceRecorderActivity.kt"
+          STORE="$SOURCE_APP/src/main/java/com/example/keyshortcut/RecordingStore.kt"
 
-          test -f "$SOURCE_APP/src/main/AndroidManifest.xml"
-          test -f "$SRC/VoiceRecorderActivity.kt"
-          test -f "$SRC/RecordingStore.kt"
+          test -f "$ACTIVITY"
+          test -f "$STORE"
+          grep -q 'val editorProgress = SeekBar(this)' "$ACTIVITY"
+          ! grep -q 'preview.addView(detailProgress ?: SeekBar(this)' "$ACTIVITY"
+          grep -q 'private fun shortConcept' "$STORE"
+          grep -q 'M/d/yy · h:mm a' "$STORE"
 
-          grep -q 'private fun showEditor' "$SRC/VoiceRecorderActivity.kt"
-          grep -q 'private fun showTrimEditor' "$SRC/VoiceRecorderActivity.kt"
-          grep -q 'generatedName' "$SRC/RecordingStore.kt"
-
-          echo 'v6 editor and transcript-title source checks passed.'
+          echo 'v7 editor and title fixes found.'
 
       - name: Create native Android Gradle project
         shell: bash
@@ -112,11 +111,11 @@ jobs:
               compileSdk 35
 
               defaultConfig {
-                  applicationId 'com.example.keyshortcut.test60'
+                  applicationId 'com.example.keyshortcut.test70'
                   minSdk 26
                   targetSdk 35
-                  versionCode 13
-                  versionName '6.0'
+                  versionCode 14
+                  versionName '7.0'
               }
 
               buildTypes {
@@ -153,9 +152,9 @@ jobs:
           unzip -t "$APK" >/dev/null
           ls -lh "$APK"
 
-      - name: Upload APK
+      - name: Upload v7 APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v6.0-test-apk
+          name: KeyShortcut-v7.0-test-apk
           path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
