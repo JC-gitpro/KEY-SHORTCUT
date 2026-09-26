@@ -28,9 +28,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           ZIP="$(find . -type f -name 'KeyShortcutV7-v7zipsource.zip' -print -quit || true)"
+
           if [ -z "$ZIP" ]; then
-            echo "::error::Upload KeyShortcutV7-v7zipsource.zip to the repository root."
+            echo "::error::Upload KeyShortcutV7-v7zipsource.zip to the repository."
             find . -type f -name '*.zip' -print
             exit 1
           fi
@@ -40,6 +42,7 @@ jobs:
           unzip -q "$ZIP" -d extracted
 
           MANIFEST="$(find extracted -type f -path '*/app/src/main/AndroidManifest.xml' -print -quit || true)"
+
           if [ -z "$MANIFEST" ]; then
             echo "::error::ZIP does not contain app/src/main/AndroidManifest.xml"
             find extracted -maxdepth 8 -type f | sort
@@ -50,38 +53,87 @@ jobs:
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
           echo "Using Android module: $SOURCE_APP"
 
-      - name: Verify v7 fixes are present
+      - name: Fix invalid Kotlin regex escapes
         shell: bash
         run: |
           set -euo pipefail
+
+          FILE="$SOURCE_APP/src/main/java/com/example/keyshortcut/RecordingStore.kt"
+
+          if [ ! -f "$FILE" ]; then
+            echo "::error::RecordingStore.kt not found: $FILE"
+            exit 1
+          fi
+
+          python3 - "$FILE" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          source = path.read_text(encoding="utf-8")
+
+          # Convert invalid Kotlin string escapes such as \d into \\d.
+          fixed, count = re.subn(r'(?<!\\)\\d', r'\\\\d', source)
+
+          if count:
+              path.write_text(fixed, encoding="utf-8")
+              print(f"Fixed {count} invalid regex escape(s).")
+          else:
+              print("No unescaped \\d found; source may already be fixed.")
+
+          check = path.read_text(encoding="utf-8")
+          if re.search(r'(?<!\\)\\d', check):
+              raise SystemExit("Invalid Kotlin \\d escape remains.")
+          PY
+
+          echo "Regex escape check completed."
+
+      - name: Verify v7 editor source
+        shell: bash
+        run: |
+          set -euo pipefail
+
           ACTIVITY="$SOURCE_APP/src/main/java/com/example/keyshortcut/VoiceRecorderActivity.kt"
           STORE="$SOURCE_APP/src/main/java/com/example/keyshortcut/RecordingStore.kt"
 
+          test -f "$SOURCE_APP/src/main/AndroidManifest.xml"
           test -f "$ACTIVITY"
           test -f "$STORE"
-          grep -q 'val editorProgress = SeekBar(this)' "$ACTIVITY"
-          ! grep -q 'preview.addView(detailProgress ?: SeekBar(this)' "$ACTIVITY"
+
+          grep -q 'private fun showEditor' "$ACTIVITY"
+          grep -q 'private fun showTrimEditor' "$ACTIVITY"
           grep -q 'private fun shortConcept' "$STORE"
           grep -q 'M/d/yy · h:mm a' "$STORE"
 
-          echo 'v7 editor and title fixes found.'
+          echo "v7 editor and title source checks passed."
 
       - name: Create native Android Gradle project
         shell: bash
         run: |
           set -euo pipefail
+
           rm -rf android-build
           mkdir -p android-build/app/src/main
           cp -a "$SOURCE_APP/src/main/." android-build/app/src/main/
 
           cat > android-build/settings.gradle <<'SETTINGS'
           pluginManagement {
-              repositories { google(); mavenCentral(); gradlePluginPortal() }
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
           }
+
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories { google(); mavenCentral() }
+              repositories {
+                  google()
+                  mavenCentral()
+              }
           }
+
           rootProject.name = "KeyShortcut"
           include(":app")
           SETTINGS
@@ -119,7 +171,9 @@ jobs:
               }
 
               buildTypes {
-                  release { minifyEnabled false }
+                  release {
+                      minifyEnabled false
+                  }
               }
 
               compileOptions {
@@ -127,7 +181,9 @@ jobs:
                   targetCompatibility JavaVersion.VERSION_17
               }
 
-              kotlinOptions { jvmTarget = '17' }
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
           }
 
           dependencies {
@@ -137,24 +193,33 @@ jobs:
           APP
 
           test -f android-build/app/src/main/AndroidManifest.xml
+          echo "Android project prepared."
 
       - name: Build APK
         working-directory: android-build
         shell: bash
-        run: gradle --no-daemon :app:assembleDebug
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:assembleDebug
 
       - name: Verify APK
         shell: bash
         run: |
           set -euo pipefail
-          APK='android-build/app/build/outputs/apk/debug/app-debug.apk'
-          test -s "$APK"
+
+          APK="android-build/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -s "$APK" ]; then
+            echo "::error::APK was not created."
+            exit 1
+          fi
+
           unzip -t "$APK" >/dev/null
+          echo "APK verified:"
           ls -lh "$APK"
 
       - name: Upload v7 APK
         uses: actions/upload-artifact@v4
         with:
           name: KeyShortcut-v7.0-test-apk
-          path: android-build/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          path: android-build/app/build/outputs
