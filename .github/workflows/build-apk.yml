@@ -1,4 +1,4 @@
-name: Build KeyShortcut v5.0 APK
+name: Build KeyShortcut v6.0 APK
 
 on:
   workflow_dispatch:
@@ -6,7 +6,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
 
@@ -25,78 +24,48 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Find and extract v5 source ZIP
+      - name: Find and extract v6 source
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED='KeyShortcutV5-v5zipsource.zip'
-          SOURCE_ZIP="$(find . -type f -name "$EXPECTED" -print -quit || true)"
+          ZIP="$(find . -type f -name 'KeyShortcutV6-v6zipsource.zip' -print -quit || true)"
 
-          if [ -z "$SOURCE_ZIP" ]; then
-            echo "Source ZIP not at repository root; checking package ZIPs..."
-            rm -rf package-search
-            mkdir -p package-search
-            while IFS= read -r outer; do
-              rm -rf package-search/*
-              if unzip -q "$outer" -d package-search 2>/dev/null; then
-                nested="$(find package-search -type f -name "$EXPECTED" -print -quit || true)"
-                if [ -n "$nested" ]; then
-                  cp "$nested" "$RUNNER_TEMP/$EXPECTED"
-                  SOURCE_ZIP="$RUNNER_TEMP/$EXPECTED"
-                  echo "Found nested source inside $outer"
-                  break
-                fi
-              fi
-            done < <(find . -type f -name '*.zip' -print)
-          fi
-
-          if [ -z "$SOURCE_ZIP" ]; then
-            echo "::error::Could not find $EXPECTED or a package containing it."
+          if [ -z "$ZIP" ]; then
+            echo "::error::Upload KeyShortcutV6-v6zipsource.zip to the repository root."
             find . -type f -name '*.zip' -print
             exit 1
           fi
 
-          echo "Using: $SOURCE_ZIP"
           rm -rf extracted
-          mkdir -p extracted
-          unzip -q "$SOURCE_ZIP" -d extracted
+          mkdir extracted
+          unzip -q "$ZIP" -d extracted
 
           MANIFEST="$(find extracted -type f -path '*/app/src/main/AndroidManifest.xml' -print -quit || true)"
           if [ -z "$MANIFEST" ]; then
-            echo "::error::The selected ZIP does not contain app/src/main/AndroidManifest.xml"
+            echo "::error::Source ZIP has no app/src/main/AndroidManifest.xml"
             find extracted -maxdepth 8 -type f | sort
             exit 1
           fi
 
           SOURCE_APP="$(dirname "$(dirname "$(dirname "$MANIFEST")")")"
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
-          echo "Android module: $SOURCE_APP"
+          echo "Source module: $SOURCE_APP"
 
-      - name: Verify v5 recorder source
+      - name: Verify v6 editor source
         shell: bash
         run: |
           set -euo pipefail
-          MAIN="$SOURCE_APP/src/main"
+          SRC="$SOURCE_APP/src/main/java/com/example/keyshortcut"
 
-          for file in \
-            "$MAIN/AndroidManifest.xml" \
-            "$MAIN/java/com/example/keyshortcut/VoiceRecorderActivity.kt" \
-            "$MAIN/java/com/example/keyshortcut/VoiceRecorderService.kt" \
-            "$MAIN/java/com/example/keyshortcut/RecordingStore.kt" \
-            "$MAIN/java/com/example/keyshortcut/TranscriptEngine.kt" \
-            "$MAIN/java/com/example/keyshortcut/AudioCondensor.kt" \
-            "$MAIN/java/com/example/keyshortcut/KeyComboService.kt" \
-            "$MAIN/java/com/example/keyshortcut/Cfg.kt"; do
-            if [ ! -f "$file" ]; then
-              echo "::error::Required v5 source missing: $file"
-              exit 1
-            fi
-          done
+          test -f "$SOURCE_APP/src/main/AndroidManifest.xml"
+          test -f "$SRC/VoiceRecorderActivity.kt"
+          test -f "$SRC/RecordingStore.kt"
 
-          grep -q 'Quadruple tap' "$MAIN/java/com/example/keyshortcut/Cfg.kt"
-          grep -q 'voice_toggle' "$MAIN/java/com/example/keyshortcut/Cfg.kt"
-          grep -q 'takePersistableUriPermission' "$MAIN/java/com/example/keyshortcut/StorageManager.kt"
-          echo "v5 source checks passed."
+          grep -q 'private fun showEditor' "$SRC/VoiceRecorderActivity.kt"
+          grep -q 'private fun showTrimEditor' "$SRC/VoiceRecorderActivity.kt"
+          grep -q 'generatedName' "$SRC/RecordingStore.kt"
+
+          echo 'v6 editor and transcript-title source checks passed.'
 
       - name: Create native Android Gradle project
         shell: bash
@@ -108,18 +77,11 @@ jobs:
 
           cat > android-build/settings.gradle <<'SETTINGS'
           pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
           }
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
+              repositories { google(); mavenCentral() }
           }
           rootProject.name = "KeyShortcut"
           include(":app")
@@ -150,17 +112,15 @@ jobs:
               compileSdk 35
 
               defaultConfig {
-                  applicationId 'com.example.keyshortcut.test50'
+                  applicationId 'com.example.keyshortcut.test60'
                   minSdk 26
                   targetSdk 35
-                  versionCode 12
-                  versionName '5.0'
+                  versionCode 13
+                  versionName '6.0'
               }
 
               buildTypes {
-                  release {
-                      minifyEnabled false
-                  }
+                  release { minifyEnabled false }
               }
 
               compileOptions {
@@ -168,9 +128,7 @@ jobs:
                   targetCompatibility JavaVersion.VERSION_17
               }
 
-              kotlinOptions {
-                  jvmTarget = '17'
-              }
+              kotlinOptions { jvmTarget = '17' }
           }
 
           dependencies {
@@ -180,15 +138,11 @@ jobs:
           APP
 
           test -f android-build/app/src/main/AndroidManifest.xml
-          echo "Native Android project prepared."
-          find android-build/app/src/main -type f | sort
 
-      - name: Build KeyShortcut v5.0
+      - name: Build APK
         working-directory: android-build
         shell: bash
-        run: |
-          set -euo pipefail
-          gradle --no-daemon :app:assembleDebug
+        run: gradle --no-daemon :app:assembleDebug
 
       - name: Verify APK
         shell: bash
@@ -197,12 +151,11 @@ jobs:
           APK='android-build/app/build/outputs/apk/debug/app-debug.apk'
           test -s "$APK"
           unzip -t "$APK" >/dev/null
-          echo "APK verified:"
           ls -lh "$APK"
 
-      - name: Upload v5.0 APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v5.0-test-apk
+          name: KeyShortcut-v6.0-test-apk
           path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
