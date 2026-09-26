@@ -1,4 +1,4 @@
-name: Build KeyShortcut v3.0 APK
+name: Build KeyShortcut v4.0 APK
 
 on:
   workflow_dispatch:
@@ -25,107 +25,90 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Find and extract KeyShortcut v3.0 source
+      - name: Find and extract KeyShortcut v4 source
         shell: bash
         run: |
           set -euo pipefail
+          EXPECTED='KeyShortcutV4-v4zipsource.zip'
+          SOURCE_ZIP="$(find . -type f -name "$EXPECTED" -print -quit || true)"
 
-          echo "============================================================"
-          echo "KEYSHORTCUT v3.0 SOURCE"
-          echo "============================================================"
+          if [ -z "$SOURCE_ZIP" ]; then
+            echo "Exact source ZIP not found. Checking uploaded package ZIPs..."
+            rm -rf package-search
+            mkdir -p package-search
+            found=''
 
-          ZIP="$(find . -type f \
-            -name 'KeyShortcutV2-v3.0-source.zip' \
-            -print -quit)"
+            while IFS= read -r candidate; do
+              rm -rf package-search/*
+              if unzip -q "$candidate" -d package-search 2>/dev/null; then
+                nested="$(find package-search -type f -name "$EXPECTED" -print -quit || true)"
+                if [ -n "$nested" ]; then
+                  cp "$nested" "$RUNNER_TEMP/$EXPECTED"
+                  found="$RUNNER_TEMP/$EXPECTED"
+                  echo "Found source ZIP inside: $candidate"
+                  break
+                fi
+              fi
+            done < <(find . -type f -name '*.zip' -print)
 
-          if [ -z "$ZIP" ]; then
-            echo "::error::Could not find KeyShortcutV2-v3.0-source.zip"
-            echo
+            SOURCE_ZIP="$found"
+          fi
+
+          if [ -z "$SOURCE_ZIP" ]; then
+            echo "::error::Could not find $EXPECTED. Upload the source ZIP or complete v4 package ZIP."
             echo "ZIP files found:"
             find . -type f -name '*.zip' -print
             exit 1
           fi
 
-          echo "Using source ZIP:"
-          echo "$ZIP"
-
+          echo "Using source: $SOURCE_ZIP"
           rm -rf extracted
           mkdir -p extracted
+          unzip -q "$SOURCE_ZIP" -d extracted
 
-          unzip -q "$ZIP" -d extracted
-
-          MANIFEST="$(find extracted \
-            -type f \
-            -path '*/app/src/main/AndroidManifest.xml' \
-            -print -quit)"
-
+          MANIFEST="$(find extracted -type f -path '*/app/src/main/AndroidManifest.xml' -print -quit || true)"
           if [ -z "$MANIFEST" ]; then
-            echo "::error::Could not find app/src/main/AndroidManifest.xml inside the v3.0 source ZIP."
-            echo
-            echo "Extracted files:"
+            echo "::error::Selected ZIP does not contain app/src/main/AndroidManifest.xml."
             find extracted -maxdepth 8 -type f | sort
             exit 1
           fi
 
           SOURCE_APP="$(dirname "$(dirname "$(dirname "$MANIFEST")")")"
-
           echo "SOURCE_APP=$SOURCE_APP" >> "$GITHUB_ENV"
+          echo "Source module: $SOURCE_APP"
 
-          echo
-          echo "Source app directory:"
-          echo "$SOURCE_APP"
+      - name: Verify v4 storage and recorder source
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAIN="$SOURCE_APP/src/main"
 
-          echo
-          echo "===== VERIFYING SOURCE ====="
+          for file in \
+            "$MAIN/AndroidManifest.xml" \
+            "$MAIN/java/com/example/keyshortcut/StorageManager.kt" \
+            "$MAIN/java/com/example/keyshortcut/RecordingStore.kt" \
+            "$MAIN/java/com/example/keyshortcut/VoiceRecorderService.kt" \
+            "$MAIN/java/com/example/keyshortcut/VoiceRecorderActivity.kt"; do
+            if [ ! -f "$file" ]; then
+              echo "::error::Required v4 source file missing: $file"
+              exit 1
+            fi
+          done
 
-          if [ ! -f "$SOURCE_APP/src/main/AndroidManifest.xml" ]; then
-            echo "::error::AndroidManifest.xml is missing."
-            exit 1
-          fi
+          grep -q 'DocumentFile.fromTreeUri' "$MAIN/java/com/example/keyshortcut/StorageManager.kt"
+          grep -q 'takePersistableUriPermission' "$MAIN/java/com/example/keyshortcut/StorageManager.kt"
+          grep -q 'FileInputStream(temp)' "$MAIN/java/com/example/keyshortcut/VoiceRecorderService.kt"
+          grep -q 'ACTION_OPEN_DOCUMENT_TREE' "$MAIN/java/com/example/keyshortcut/VoiceRecorderActivity.kt"
 
-          if [ ! -f "$SOURCE_APP/src/main/java/com/example/keyshortcut/StorageManager.kt" ]; then
-            echo "::error::StorageManager.kt is missing."
-            exit 1
-          fi
-
-          if ! grep -q "fun isLinked" \
-            "$SOURCE_APP/src/main/java/com/example/keyshortcut/StorageManager.kt"; then
-            echo "::error::StorageManager.isLinked() was not found."
-            exit 1
-          fi
-
-          if [ ! -f "$SOURCE_APP/src/main/java/com/example/keyshortcut/VoiceRecorderService.kt" ]; then
-            echo "::error::VoiceRecorderService.kt is missing."
-            exit 1
-          fi
-
-          echo "AndroidManifest.xml: FOUND"
-          echo "StorageManager.kt: FOUND"
-          echo "StorageManager.isLinked(): FOUND"
-          echo "VoiceRecorderService.kt: FOUND"
-
-          echo
-          echo "===== SOURCE FILES ====="
-          find "$SOURCE_APP/src/main" -type f | sort
+          echo "v4 storage and recorder source checks passed."
 
       - name: Create native Android Gradle project
         shell: bash
         run: |
           set -euo pipefail
-
-          echo "============================================================"
-          echo "CREATING ANDROID GRADLE PROJECT"
-          echo "============================================================"
-
           rm -rf android-build
-
           mkdir -p android-build/app/src/main
-
-          # IMPORTANT:
-          # SOURCE_APP already points to the KeyShortcutV2 project folder.
-          # Therefore the correct path is src/main, NOT app/src/main.
-          cp -a "$SOURCE_APP/src/main/." \
-            android-build/app/src/main/
+          cp -a "$SOURCE_APP/src/main/." android-build/app/src/main/
 
           cat > android-build/settings.gradle <<'SETTINGS'
           pluginManagement {
@@ -135,18 +118,14 @@ jobs:
                   gradlePluginPortal()
               }
           }
-
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-
               repositories {
                   google()
                   mavenCentral()
               }
           }
-
           rootProject.name = "KeyShortcut"
-
           include(":app")
           SETTINGS
 
@@ -172,15 +151,14 @@ jobs:
 
           android {
               namespace 'com.example.keyshortcut'
-
               compileSdk 35
 
               defaultConfig {
-                  applicationId 'com.example.keyshortcut.test30'
+                  applicationId 'com.example.keyshortcut.test40'
                   minSdk 26
                   targetSdk 35
-                  versionCode 10
-                  versionName '3.0'
+                  versionCode 11
+                  versionName '4.0'
               }
 
               buildTypes {
@@ -200,66 +178,33 @@ jobs:
           }
 
           dependencies {
-              implementation "androidx.documentfile:documentfile:1.0.1"
+              implementation 'androidx.documentfile:documentfile:1.0.1'
           }
           APP
 
-          if [ ! -f android-build/app/src/main/AndroidManifest.xml ]; then
-              echo "::error::AndroidManifest.xml was not copied."
-              exit 1
-          fi
-
-          echo
-          echo "===== ANDROID PROJECT CREATED ====="
-
-          echo "AndroidManifest.xml: FOUND"
-
-          echo
-          echo "===== ANDROID SOURCE FILES ====="
+          test -f android-build/app/src/main/AndroidManifest.xml
+          echo "Native Android project created."
           find android-build/app/src/main -type f | sort
 
-      - name: Build KeyShortcut v3.0
+      - name: Build KeyShortcut v4.0
         working-directory: android-build
         shell: bash
         run: |
           set -euo pipefail
-
-          echo "============================================================"
-          echo "BUILDING KEYSCHORTCUT v3.0"
-          echo "============================================================"
-
           gradle --no-daemon :app:assembleDebug
 
       - name: Verify APK
         shell: bash
         run: |
           set -euo pipefail
-
-          APK="android-build/app/build/outputs/apk/debug/app-debug.apk"
-
-          echo "============================================================"
-          echo "VERIFYING APK"
-          echo "============================================================"
-
-          if [ ! -f "$APK" ]; then
-              echo "::error::APK was not created."
-              exit 1
-          fi
-
-          if [ ! -s "$APK" ]; then
-              echo "::error::APK exists but is empty."
-              exit 1
-          fi
-
+          APK='android-build/app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$APK"
           unzip -t "$APK" >/dev/null
-
-          echo "APK verification passed."
-
           ls -lh "$APK"
 
-      - name: Upload KeyShortcut v3.0 APK
+      - name: Upload v4.0 APK
         uses: actions/upload-artifact@v4
         with:
-          name: KeyShortcut-v3.0-test-apk
+          name: KeyShortcut-v4.0-test-apk
           path: android-build/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
